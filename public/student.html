@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="uk" class="bg-admin">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VARTA — Панель учня</title>
+    <!-- Спільні стилі панелі + додаткові стилі учня -->
+    <link rel="stylesheet" href="./student.css" />
+</head>
+
+<body>
+    <div class="admin-shell">
+        <!-- Бічна навігація -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-mark">V</span>
+                <div>
+                    <strong>VARTA</strong>
+                    <small>Панель учня</small>
+                </div>
+            </div>
+            <nav class="nav">
+                <button class="nav-item active" data-page="dashboard">Dashboard</button>
+                <button class="nav-item" data-page="competitions">Конкурси</button>
+                <button class="nav-item" data-page="submit">Подати заявку</button>
+                <button class="nav-item" data-page="applications">Мої заявки</button>
+                <button class="nav-item" data-page="results">Результати</button>
+                <button class="nav-item" data-page="diplomas">Дипломи</button>
+                <button class="nav-item" data-page="notifications">Сповіщення</button>
+                <button class="nav-item" data-page="profile">Профіль</button>
+            </nav>
+            <button id="logoutBtn" class="logout">Вийти</button>
+        </aside>
+
+        <!-- Основна область -->
+        <main class="content">
+            <header class="topbar">
+                <h1 id="pageTitle">Dashboard</h1>
+                <div class="who">
+                    <span id="schoolName">—</span>
+                    <span id="userEmail"></span>
+                    <span class="role-pill">Учень</span>
+                </div>
+            </header>
+
+            <div id="toast" class="toast"></div>
+
+            <!-- Банер: учня ще не закріплено за школою -->
+            <div id="noSchoolBanner" class="panel hidden">
+                <h2>Школу не призначено</h2>
+                <p class="hint">Вас ще не закріплено за школою. Зверніться до свого вчителя або завуча, щоб отримати
+                    повний доступ. Ви вже можете переглядати конкурси та подавати заявки.</p>
+            </div>
+
+            <!-- Dashboard -->
+            <section class="page" data-page="dashboard">
+                <div class="cards" id="statCards"></div>
+                <div class="panel">
+                    <h2>Як це працює</h2>
+                    <div class="flow">
+                        <div class="flow-step"><span class="flow-num">1</span>Обираєте конкурс</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-step"><span class="flow-num">2</span>Подаєте заявку</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-step"><span class="flow-num">3</span>Отримуєте результат і диплом</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Конкурси -->
+            <section class="page hidden" data-page="competitions">
+                <div class="panel">
+                    <h2>Опубліковані конкурси</h2>
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>Конкурс</th>
+                                <th>Період</th>
+                                <th>Секцій</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="competitionsBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Подати заявку -->
+            <section class="page hidden" data-page="submit">
+                <div class="panel">
+                    <h2>Подати власну заявку</h2>
+                    <p class="hint">Оберіть конкурс і секцію та вкажіть назву своєї роботи. Заявку буде подано від
+                        вашого
+                        імені.</p>
+                    <form id="submitForm" class="stack-form">
+                        <label>Конкурс
+                            <select id="subCompetition" required></select>
+                        </label>
+                        <label>Секція
+                            <select id="subSection"></select>
+                        </label>
+                        <label>Назва роботи
+                            <input type="text" id="subTitle" placeholder="Тема / назва проєкту" />
+                        </label>
+                        <div id="subFormFields" class="form-fields"></div>
+                        <button class="btn">Подати заявку</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Мої заявки -->
+            <section class="page hidden" data-page="applications">
+                <div class="panel">
+                    <h2>Мої заявки</h2>
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>Конкурс</th>
+                                <th>Секція</th>
+                                <th>Назва роботи</th>
+                                <th>Статус</th>
+                                <th>Бал</th>
+                                <th>Подано</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="applicationsBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Результати -->
+            <section class="page hidden" data-page="results">
+                <div class="panel">
+                    <h2>Мої результати</h2>
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>Конкурс</th>
+                                <th>Секція</th>
+                                <th>Статус</th>
+                                <th>Бал</th>
+                                <th>Журі</th>
+                                <th>Коментар</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Дипломи -->
+            <section class="page hidden" data-page="diplomas">
+                <div class="panel">
+                    <h2>Мої дипломи</h2>
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>Конкурс</th>
+                                <th>Місце</th>
+                                <th>Бал</th>
+                                <th>Видано</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="diplomasBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Сповіщення -->
+            <section class="page hidden" data-page="notifications">
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>Сповіщення</h2>
+                        <button id="readAllBtn" class="btn sm">Прочитати всі</button>
+                    </div>
+                    <div id="notificationsList" class="notif-list"></div>
+                </div>
+            </section>
+
+            <!-- Профіль -->
+            <section class="page hidden" data-page="profile">
+                <div class="panel">
+                    <h2>Мій профіль</h2>
+                    <form id="profileForm" class="stack-form">
+                        <label>Email
+                            <input type="email" id="pEmail" disabled />
+                        </label>
+                        <label>Повне ім'я
+                            <input type="text" id="pName" placeholder="Прізвище Ім'я По батькові" />
+                        </label>
+                        <label>Телефон
+                            <input type="text" id="pPhone" placeholder="+380..." />
+                        </label>
+                        <button class="btn">Зберегти профіль</button>
+                    </form>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="./student.js"></script>
+</body>
+
+</html>
