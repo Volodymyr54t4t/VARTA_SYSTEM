@@ -28,6 +28,10 @@
                 <button class="nav-item" data-page="results">Результати</button>
                 <button class="nav-item" data-page="analytics">Аналітика</button>
                 <button class="nav-item" data-page="jury">Панель журі</button>
+                <button class="nav-item" data-page="notifications">
+                    Сповіщення
+                    <span id="notifBadge" class="nav-badge hidden">0</span>
+                </button>
                 <button class="nav-item" data-page="rules">Положення</button>
                 <button class="nav-item" data-page="archive">Архів</button>
                 <button class="nav-item" data-page="profile">Профіль</button>
@@ -214,6 +218,18 @@
                         </thead>
                         <tbody id="juryBody"></tbody>
                     </table>
+                </div>
+            </section>
+
+            <!-- Сповіщення -->
+            <section class="page hidden" data-page="notifications">
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>Мої сповіщення</h2>
+                        <button id="markAllReadBtn" class="btn ghost sm">Прочитати всі</button>
+                    </div>
+                    <p class="hint">Повідомлення від адміністрації та системи платформи.</p>
+                    <ul id="notificationsList" class="notif-list"></ul>
                 </div>
             </section>
 
