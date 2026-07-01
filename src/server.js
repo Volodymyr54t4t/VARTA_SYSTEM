@@ -21,7 +21,7 @@ const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
 const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
 
