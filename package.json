@@ -6,7 +6,9 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "bot": "node src/bot.js",
+    "bot:dev": "node --watch src/bot.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -15,6 +17,7 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "telegraf": "^4.16.3"
   }
 }
