@@ -1,0 +1,15 @@
+# Залежності
+node_modules/
+
+# Змінні середовища / секрети
+.env
+.env.*
+!.env.example
+
+# Логи
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Системні файли
+.DS_Store
