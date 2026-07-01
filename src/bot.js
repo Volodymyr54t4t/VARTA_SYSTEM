@@ -391,16 +391,39 @@ bot.on("text", async (ctx) => {
 //  Запуск
 // ----------------------------------------------------------------------------
 async function main() {
-  // Перевірка з'єднання з базою
-  await pool.query("SELECT 1");
-  console.log("[v0] Підключення до бази даних успішне.");
+  // 1) Перевірка з'єднання з базою
+  try {
+    await pool.query("SELECT 1");
+    console.log("[v0] Підключення до бази даних успішне.");
+  } catch (err) {
+    console.error(
+      "[v0] Не вдалося підключитися до бази даних. Перевірте DATABASE_URL у файлі .env.\n",
+      err
+    );
+    process.exit(1);
+  }
 
-  await bot.launch();
-  console.log("[v0] Telegram-бот VARTA запущено.");
+  // 2) Перевірка, що токен дійсний (getMe)
+  try {
+    const me = await bot.telegram.getMe();
+    console.log(`[v0] Токен дійсний. Бот: @${me.username}`);
+  } catch (err) {
+    console.error(
+      "[v0] Невірний TELEGRAM_BOT_TOKEN. Перевірте токен від @BotFather у файлі .env.\n",
+      err
+    );
+    process.exit(1);
+  }
+
+  // 3) Запуск polling.
+  //    bot.launch() у Telegraf блокує виконання, тому НЕ використовуємо await —
+  //    інакше повідомлення про старт нижче не з'явиться.
+  bot.launch();
+  console.log("[v0] Telegram-бот VARTA запущено. Напишіть боту /start у Telegram.");
 }
 
 main().catch((err) => {
-  console.error("[v0] Не вдалося запустити бота:", err.message);
+  console.error("[v0] Не вдалося запустити бота:", err);
   process.exit(1);
 });
 
