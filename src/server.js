@@ -625,7 +625,7 @@ function authRequired(req, res, next) {
   }
 }
 
-// --- Мі��лвер контролю ролей --------------------------------------------------
+// --- Мідлвер контролю ролей --------------------------------------------------
 function roleRequired(...allowed) {
   return (req, res, next) => {
     if (!req.user || !allowed.includes(req.user.role)) {
@@ -2275,7 +2275,7 @@ app.get("/api/zavuch/me", zavuchOnly, async (req, res) => {
 app.post("/api/zavuch/school", zavuchOnly, async (req, res) => {
   try {
     const schoolId = parseInt(req.body?.school_id, 10);
-    if (!schoolId) return res.status(400).json({ error: "Оберіть ш������олу" });
+    if (!schoolId) return res.status(400).json({ error: "Оберіть ш����олу" });
     const privileged = req.user.role === "admin" || req.user.role === "system";
 
     const s = await pool.query("SELECT * FROM schools WHERE id = $1", [schoolId]);
@@ -3246,114 +3246,6 @@ app.post("/api/methodist/notifications/read-all", methodistOnly, async (req, res
     [req.user.id]
   );
   res.json({ message: "Усі сповіщення прочитано" });
-});
-
-// --- Розсилка сповіщень методистом -------------------------------------------
-//  Методист може надсилати повідомлення всім ролям, ОКРІМ адміністратора.
-const METHODIST_BLOCKED_ROLES = ["admin", "guest"];
-const methodistAudienceRoles = () => ROLES.filter((r) => !METHODIST_BLOCKED_ROLES.includes(r));
-
-// Довідник для форми розсилки (без адміністраторів)
-app.get("/api/methodist/notifications/meta", methodistOnly, async (req, res) => {
-  const users = await pool.query(
-    `SELECT u.id, u.email, u.role, p.full_name
-       FROM users u
-       LEFT JOIN user_profiles p ON p.user_id = u.id
-      WHERE u.role <> ALL($1::text[])
-      ORDER BY p.full_name NULLS LAST, u.email`,
-    [METHODIST_BLOCKED_ROLES]
-  );
-  const byRole = await pool.query(
-    "SELECT role, COUNT(*)::int AS c FROM users WHERE role <> ALL($1::text[]) GROUP BY role",
-    [METHODIST_BLOCKED_ROLES]
-  );
-  res.json({
-    types: NOTIF_TYPES,
-    channels: NOTIF_CHANNELS,
-    roles: methodistAudienceRoles(),
-    users: users.rows,
-    roleCounts: byRole.rows,
-  });
-});
-
-// Історія розсилок цього методиста
-app.get("/api/methodist/notifications/sent", methodistOnly, async (req, res) => {
-  const r = await pool.query(
-    `SELECT nm.id, nm.title, nm.body, nm.type, nm.channels, nm.audience_mode,
-            nm.audience_roles, nm.status, nm.created_at, nm.sent_at,
-            (SELECT COUNT(*)::int FROM notification_users nu WHERE nu.message_id = nm.id) AS recipients,
-            (SELECT COUNT(*)::int FROM notification_users nu WHERE nu.message_id = nm.id AND nu.is_read) AS read_count
-       FROM notification_messages nm
-      WHERE nm.sender_id = $1
-      ORDER BY nm.created_at DESC
-      LIMIT 100`,
-    [req.user.id]
-  );
-  res.json({ notifications: r.rows });
-});
-
-// Створити й негайно надіслати повідомлення (адміністратори виключені з аудиторії)
-app.post("/api/methodist/notifications/send", methodistOnly, async (req, res) => {
-  try {
-    const v = validateNotificationInput(req.body);
-    if (v.error) return res.status(400).json({ error: v.error });
-
-    let audienceMode = v.audienceMode;
-    let audienceRoles = v.audienceRoles;
-    let audienceUsers = v.audienceUsers;
-
-    if (audienceMode === "all") {
-      // «Усі» → явний перелік дозволених ролей, щоб адмін ніколи не потрапив в аудиторію
-      audienceMode = "roles";
-      audienceRoles = methodistAudienceRoles();
-    } else if (audienceMode === "roles") {
-      audienceRoles = audienceRoles.filter((r) => !METHODIST_BLOCKED_ROLES.includes(r));
-      if (!audienceRoles.length)
-        return res.status(400).json({ error: "Оберіть хоча б одну роль (окрім адміністратора)" });
-    } else if (audienceMode === "users") {
-      const chk = await pool.query(
-        "SELECT id FROM users WHERE id = ANY($1::int[]) AND role <> ALL($2::text[])",
-        [audienceUsers, METHODIST_BLOCKED_ROLES]
-      );
-      audienceUsers = chk.rows.map((x) => x.id);
-      if (!audienceUsers.length)
-        return res.status(400).json({ error: "Оберіть отримувачів (адміністратори недоступні)" });
-    }
-
-    const ins = await pool.query(
-      `INSERT INTO notification_messages
-         (title, body, type, channels, audience_mode, audience_roles, audience_users, status, sender_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)
-       RETURNING *`,
-      [
-        v.title,
-        v.body,
-        v.type,
-        JSON.stringify(v.channels),
-        audienceMode,
-        JSON.stringify(audienceRoles),
-        JSON.stringify(audienceUsers),
-        req.user.id,
-      ]
-    );
-    const message = ins.rows[0];
-
-    for (const f of v.files) {
-      if (!f?.file_url) continue;
-      await pool.query(
-        `INSERT INTO notification_files (message_id, file_url, file_name, file_type)
-         VALUES ($1,$2,$3,$4)`,
-        [message.id, f.file_url, f.file_name || null, f.file_type || null]
-      );
-    }
-
-    const delivered = await deliverMessage(message.id);
-    await logAction("methodist_notification_send", req.user.id, `«${v.title}» → ${delivered} отримувачів`);
-    res.status(201).json({ message: `Надіслано ${delivered} отримувачам`, delivered });
-  } catch (err) {
-    console.log("[v0] Помилка розсилки методиста:", err.message);
-    res.status(500).json({ error: "Внутрішня помилка серверу" });
-  }
 });
 
 // --- Профіль учня -------------------------------------------------------------
