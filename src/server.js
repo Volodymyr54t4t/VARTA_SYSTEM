@@ -2010,7 +2010,7 @@ app.get("/api/zavuch/me", zavuchOnly, async (req, res) => {
 app.post("/api/zavuch/school", zavuchOnly, async (req, res) => {
   try {
     const schoolId = parseInt(req.body?.school_id, 10);
-    if (!schoolId) return res.status(400).json({ error: "Оберіть ш��олу" });
+    if (!schoolId) return res.status(400).json({ error: "Оберіть ш����олу" });
     const privileged = req.user.role === "admin" || req.user.role === "system";
 
     const s = await pool.query("SELECT * FROM schools WHERE id = $1", [schoolId]);
@@ -3000,6 +3000,40 @@ app.put("/api/student/profile", studentOnly, async (req, res) => {
   res.json({ message: "Профіль збережено" });
 });
 
+// --- Сповіщення учня (особиста скринька) -------------------------------------
+app.get("/api/student/notifications", studentOnly, async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, message, is_read, created_at FROM notifications
+      WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
+    [req.user.id]
+  );
+  const unread = r.rows.filter((n) => !n.is_read).length;
+  res.json({ notifications: r.rows, unread });
+});
+
+app.patch("/api/student/notifications/:id/read", studentOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const upd = await pool.query(
+    "UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2 RETURNING id",
+    [id, req.user.id]
+  );
+  if (upd.rowCount === 0) return res.status(404).json({ error: "Сповіщення не знайдено" });
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Позначено прочитаним" });
+});
+
+app.post("/api/student/notifications/read-all", studentOnly, async (req, res) => {
+  await pool.query("UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false", [req.user.id]);
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Усі сповіщення прочитано" });
+});
+
 // ============================================================================
 //  ПАНЕЛЬ ЖУРІ (роль "jury", з доступом для admin/system) — див. схему "5. ЖУРІ"
 //  Можливості: перегляд призначених конкурсів, оцінювання заявок (0–100),
@@ -3024,7 +3058,7 @@ app.get("/api/jury/stats", juryOnly, async (req, res) => {
     const privileged = req.user.role === "admin" || req.user.role === "system";
     const uid = req.user.id;
 
-    // Конкурси, до яких призначено суддю (для admin/system — усі опубліковані/наявні)
+    // Конкурси, до яких призначено суддю (для admin/system — усі опубліков��ні/наявні)
     const competitionsQ = privileged
       ? pool.query("SELECT COUNT(*)::int AS c FROM competitions")
       : pool.query(
@@ -3233,6 +3267,40 @@ app.put("/api/jury/profile", juryOnly, async (req, res) => {
   res.json({ message: "Профіль збережено" });
 });
 
+// --- Сповіщення журі (особиста скринька) -------------------------------------
+app.get("/api/jury/notifications", juryOnly, async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, message, is_read, created_at FROM notifications
+      WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
+    [req.user.id]
+  );
+  const unread = r.rows.filter((n) => !n.is_read).length;
+  res.json({ notifications: r.rows, unread });
+});
+
+app.patch("/api/jury/notifications/:id/read", juryOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const upd = await pool.query(
+    "UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2 RETURNING id",
+    [id, req.user.id]
+  );
+  if (upd.rowCount === 0) return res.status(404).json({ error: "Сповіщення не знайдено" });
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Позначено прочитаним" });
+});
+
+app.post("/api/jury/notifications/read-all", juryOnly, async (req, res) => {
+  await pool.query("UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false", [req.user.id]);
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Усі сповіщення прочитано" });
+});
+
 // ============================================================================
 //  ПАНЕЛЬ СИСТЕМИ (роль "system" / "admin") — див. схему "7. СИСТЕМА"
 //  Автоматизований конвеєр: Результати → Рейтинг → Дипломи → Протоколи → Архів
@@ -3390,7 +3458,7 @@ app.post("/api/system/competitions/:id/process", systemOnly, async (req, res) =>
       [competitionId, protocolContent]
     );
 
-    // 4) Архів — протокол та конкурс
+    // 4) Арх��в — протокол та конкурс
     await pool.query(
       `INSERT INTO archive_items (type, related_id, title)
        VALUES ('protocol', $1, $2)`,

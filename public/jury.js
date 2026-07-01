@@ -6,6 +6,7 @@ const PAGE_TITLES = {
   dashboard: "Dashboard",
   competitions: "Мої конкурси",
   review: "Оцінювання",
+  notifications: "Сповіщення",
   profile: "Профіль",
 };
 
@@ -53,6 +54,7 @@ const loaders = {
   dashboard: loadDashboard,
   competitions: loadCompetitions,
   review: loadReview,
+  notifications: loadNotifications,
   profile: loadProfile,
 };
 
@@ -210,6 +212,28 @@ function renderReviewCard(a) {
     </form>
   </div>`;
 }
+
+// ---- Сповіщення -------------------------------------------------------------
+async function loadNotifications() {
+  const { notifications } = await getJSON("/api/jury/notifications");
+  $("notificationsList").innerHTML = notifications.length
+    ? notifications
+        .map(
+          (n) => `<div class="notif ${n.is_read ? "" : "unread"}">
+            <p class="notif-msg">${esc(n.message)}</p>
+            <span class="notif-date">${fmtDate(n.created_at)}</span>
+          </div>`
+        )
+        .join("")
+    : `<div class="empty">Сповіщень немає</div>`;
+}
+
+$("readAllBtn").onclick = async () => {
+  const { ok, data } = await send("POST", "/api/jury/notifications/read-all", {});
+  if (!ok) return toast("err", data.error || "Помилка");
+  toast("ok", data.message);
+  loadNotifications();
+};
 
 // ---- Профіль ----------------------------------------------------------------
 async function loadProfile() {
