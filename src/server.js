@@ -2878,6 +2878,41 @@ app.post("/api/student/notifications/read-all", studentOnly, async (req, res) =>
   res.json({ message: "Усі сповіщення прочитано" });
 });
 
+// --- Сповіщення методиста (особиста скринька) --------------------------------
+app.get("/api/methodist/notifications", methodistOnly, async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, message, is_read, created_at FROM notifications
+      WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
+    [req.user.id]
+  );
+  const unread = r.rows.filter((n) => !n.is_read).length;
+  res.json({ notifications: r.rows, unread });
+});
+
+app.patch("/api/methodist/notifications/:id/read", methodistOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const upd = await pool.query(
+    "UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2 RETURNING id",
+    [id, req.user.id]
+  );
+  if (upd.rowCount === 0) return res.status(404).json({ error: "Сповіщення не знайдено" });
+  // Синхронізуємо статус прочитання у центрі сповіщень
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Позначено прочитаним" });
+});
+
+app.post("/api/methodist/notifications/read-all", methodistOnly, async (req, res) => {
+  await pool.query("UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false", [req.user.id]);
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Усі сповіщення прочитано" });
+});
+
 // --- Профіль учня -------------------------------------------------------------
 app.put("/api/student/profile", studentOnly, async (req, res) => {
   const full_name = (req.body?.full_name || "").trim() || null;
