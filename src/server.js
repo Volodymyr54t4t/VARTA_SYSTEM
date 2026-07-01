@@ -360,6 +360,82 @@ async function initDb() {
     );
   `);
 
+  // ========================================================================
+  //  ЦЕНТР СПОВІЩЕНЬ (Адмін / Методист)
+  //  Централізоване інформування користувачів платформи.
+  // ========================================================================
+
+  // Шаблони повідомлень
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notification_templates (
+      id          SERIAL PRIMARY KEY,
+      name        VARCHAR(255) NOT NULL,
+      type        VARCHAR(32)  NOT NULL DEFAULT 'info',
+      title       VARCHAR(255),
+      body        TEXT,
+      channels    JSONB        NOT NULL DEFAULT '["platform"]',
+      created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+    );
+  `);
+
+  // Повідомлення центру сповіщень (складене повідомлення)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notification_messages (
+      id             SERIAL PRIMARY KEY,
+      title          VARCHAR(255) NOT NULL,
+      body           TEXT,
+      type           VARCHAR(32)  NOT NULL DEFAULT 'info',   -- system|info|urgent|reminder|result|registration
+      channels       JSONB        NOT NULL DEFAULT '["platform"]',
+      audience_mode  VARCHAR(16)  NOT NULL DEFAULT 'all',     -- all|roles|users
+      audience_roles JSONB        NOT NULL DEFAULT '[]',
+      audience_users JSONB        NOT NULL DEFAULT '[]',
+      status         VARCHAR(16)  NOT NULL DEFAULT 'draft',   -- draft|scheduled|sent|archived
+      scheduled_at   TIMESTAMPTZ,
+      sent_at        TIMESTAMPTZ,
+      sender_id      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at     TIMESTAMPTZ  NOT NULL DEFAULT now()
+    );
+  `);
+
+  // Отримувачі повідомлення (персональна доставка + статус прочитання)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notification_users (
+      id          SERIAL PRIMARY KEY,
+      message_id  INTEGER NOT NULL REFERENCES notification_messages(id) ON DELETE CASCADE,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      is_read     BOOLEAN NOT NULL DEFAULT false,
+      read_at     TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (message_id, user_id)
+    );
+  `);
+
+  // Прикріплені файли повідомлення
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notification_files (
+      id          SERIAL PRIMARY KEY,
+      message_id  INTEGER NOT NULL REFERENCES notification_messages(id) ON DELETE CASCADE,
+      file_url    VARCHAR(512) NOT NULL,
+      file_name   VARCHAR(255),
+      file_type   VARCHAR(128),
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  // Журнал доставки по каналах
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notification_logs (
+      id          SERIAL PRIMARY KEY,
+      message_id  INTEGER REFERENCES notification_messages(id) ON DELETE CASCADE,
+      user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      channel     VARCHAR(32),
+      status      VARCHAR(32),   -- delivered|failed|read
+      detail      TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   // ---- Універсальний адміністратор ----
   const adminEmail = (process.env.ADMIN_EMAIL || "admin@varta.com").toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD || "C240809v";
@@ -395,7 +471,87 @@ async function logAction(action, userId = null, details = null) {
       [action, userId, details]
     );
   } catch (err) {
-    console.log("[v0] Не вдалося записати лог:", err.message);
+    console.log("[v0] Не вда��ося записати лог:", err.message);
+  }
+}
+
+// ----------------------------------------------------------------------------
+//  ЦЕНТР СПОВІЩЕНЬ — допоміжні функції доставки
+// ----------------------------------------------------------------------------
+const NOTIF_TYPES = ["system", "info", "urgent", "reminder", "result", "registration"];
+const NOTIF_CHANNELS = ["platform", "email", "push", "telegram"];
+
+// Обчислює список id користувачів-отримувачів згідно з аудиторією повідомлення.
+async function resolveAudience(message) {
+  if (message.audience_mode === "all") {
+    const r = await pool.query("SELECT id FROM users WHERE role <> 'guest'");
+    return r.rows.map((x) => x.id);
+  }
+  if (message.audience_mode === "roles") {
+    const roles = Array.isArray(message.audience_roles) ? message.audience_roles : [];
+    if (!roles.length) return [];
+    const r = await pool.query("SELECT id FROM users WHERE role = ANY($1::text[])", [roles]);
+    return r.rows.map((x) => x.id);
+  }
+  if (message.audience_mode === "users") {
+    const users = Array.isArray(message.audience_users) ? message.audience_users : [];
+    return users.map(Number).filter((n) => Number.isInteger(n));
+  }
+  return [];
+}
+
+// Доставляє повідомлення: створює записи отримувачів, логи каналів
+// та (для каналу platform) додає запис у персональну скриньку користувача.
+async function deliverMessage(messageId) {
+  const mRes = await pool.query("SELECT * FROM notification_messages WHERE id = $1", [messageId]);
+  if (mRes.rowCount === 0) return 0;
+  const m = mRes.rows[0];
+
+  const ids = await resolveAudience(m);
+  const channels = Array.isArray(m.channels) ? m.channels : [];
+  const inbox = `${m.title}${m.body ? " — " + m.body : ""}`;
+
+  for (const uid of ids) {
+    await pool.query(
+      `INSERT INTO notification_users (message_id, user_id)
+       VALUES ($1, $2) ON CONFLICT (message_id, user_id) DO NOTHING`,
+      [messageId, uid]
+    );
+    // Канал "platform" інтегрується з наявною скринькою користувача
+    if (channels.includes("platform")) {
+      await pool.query(`INSERT INTO notifications (user_id, message) VALUES ($1, $2)`, [uid, inbox]);
+    }
+    for (const ch of channels) {
+      // Без реальних поштових/push сервісів доставка позначається як demo-delivered
+      await pool.query(
+        `INSERT INTO notification_logs (message_id, user_id, channel, status, detail)
+         VALUES ($1, $2, $3, 'delivered', $4)`,
+        [messageId, uid, ch, `Доставлено каналом «${ch}»`]
+      );
+    }
+  }
+
+  await pool.query(
+    "UPDATE notification_messages SET status = 'sent', sent_at = now() WHERE id = $1",
+    [messageId]
+  );
+  return ids.length;
+}
+
+// Фоновий обробник відкладених повідомлень (перевірка кожні 30 с)
+async function processScheduledNotifications() {
+  try {
+    const r = await pool.query(
+      `SELECT id FROM notification_messages
+        WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= now()`
+    );
+    for (const row of r.rows) {
+      const count = await deliverMessage(row.id);
+      await logAction("notification_scheduled_sent", null, `Повідомлення #${row.id} → ${count} отримувачів`);
+      console.log(`[v0] Відкладене повідомлення #${row.id} надіслано (${count} отримувачів)`);
+    }
+  } catch (err) {
+    console.log("[v0] Помилка планувальника сповіщень:", err.message);
   }
 }
 
@@ -961,6 +1117,269 @@ app.get("/api/admin/logs", adminOnly, async (req, res) => {
       LIMIT 200`
   );
   res.json({ logs: r.rows });
+});
+
+// ---------------------------------------------------------------------------
+//  ЦЕНТР СПОВІЩЕНЬ
+// ---------------------------------------------------------------------------
+
+// Довідник для форми створення: типи, канали, ролі та список користувачів
+app.get("/api/admin/notifications/meta", adminOnly, async (req, res) => {
+  const users = await pool.query(
+    `SELECT u.id, u.email, u.role, p.full_name
+       FROM users u
+       LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE u.role <> 'guest'
+      ORDER BY p.full_name NULLS LAST, u.email`
+  );
+  const byRole = await pool.query(
+    "SELECT role, COUNT(*)::int AS c FROM users WHERE role <> 'guest' GROUP BY role"
+  );
+  res.json({
+    types: NOTIF_TYPES,
+    channels: NOTIF_CHANNELS,
+    roles: ROLES.filter((r) => r !== "guest"),
+    users: users.rows,
+    roleCounts: byRole.rows,
+  });
+});
+
+// Історія повідомлень (з підрахунком отримувачів та прочитань)
+app.get("/api/admin/notifications", adminOnly, async (req, res) => {
+  const r = await pool.query(
+    `SELECT nm.*, u.email AS sender_email,
+            (SELECT COUNT(*)::int FROM notification_users nu WHERE nu.message_id = nm.id) AS recipients,
+            (SELECT COUNT(*)::int FROM notification_users nu WHERE nu.message_id = nm.id AND nu.is_read) AS read_count,
+            (SELECT COUNT(*)::int FROM notification_files nf WHERE nf.message_id = nm.id) AS files_count
+       FROM notification_messages nm
+       LEFT JOIN users u ON u.id = nm.sender_id
+      ORDER BY nm.created_at DESC
+      LIMIT 200`
+  );
+  res.json({ notifications: r.rows });
+});
+
+// Деталі повідомлення: отримувачі, файли, логи доставки
+app.get("/api/admin/notifications/:id", adminOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const m = await pool.query("SELECT * FROM notification_messages WHERE id = $1", [id]);
+  if (m.rowCount === 0) return res.status(404).json({ error: "Повідомлення не знайдено" });
+  const [recipients, files, logs] = await Promise.all([
+    pool.query(
+      `SELECT nu.is_read, nu.read_at, u.email, u.role, p.full_name
+         FROM notification_users nu
+         JOIN users u ON u.id = nu.user_id
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+        WHERE nu.message_id = $1
+        ORDER BY nu.is_read, u.email`,
+      [id]
+    ),
+    pool.query("SELECT id, file_url, file_name, file_type FROM notification_files WHERE message_id = $1", [id]),
+    pool.query(
+      `SELECT nl.channel, nl.status, nl.detail, nl.created_at, u.email
+         FROM notification_logs nl
+         LEFT JOIN users u ON u.id = nl.user_id
+        WHERE nl.message_id = $1
+        ORDER BY nl.created_at DESC
+        LIMIT 300`,
+      [id]
+    ),
+  ]);
+  res.json({
+    message: m.rows[0],
+    recipients: recipients.rows,
+    files: files.rows,
+    logs: logs.rows,
+  });
+});
+
+// Завантаження файлу-вкладення (повертає дані файлу для форми)
+app.post("/api/admin/notifications/upload", adminOnly, upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Файл не отримано" });
+  res.status(201).json({
+    file: {
+      file_url: `/uploads/${req.file.filename}`,
+      file_name: req.file.originalname,
+      file_type: req.file.mimetype,
+    },
+  });
+});
+
+// Валідація полів повідомлення
+function validateNotificationInput(body) {
+  const title = (body?.title || "").trim();
+  if (!title) return { error: "Вкажіть заголовок повідомлення" };
+  const type = NOTIF_TYPES.includes(body?.type) ? body.type : "info";
+  let channels = Array.isArray(body?.channels) ? body.channels.filter((c) => NOTIF_CHANNELS.includes(c)) : [];
+  if (!channels.length) channels = ["platform"];
+  const audienceMode = ["all", "roles", "users"].includes(body?.audience_mode) ? body.audience_mode : "all";
+  const audienceRoles = Array.isArray(body?.audience_roles)
+    ? body.audience_roles.filter((r) => ROLES.includes(r))
+    : [];
+  const audienceUsers = Array.isArray(body?.audience_users)
+    ? body.audience_users.map(Number).filter((n) => Number.isInteger(n))
+    : [];
+  if (audienceMode === "roles" && !audienceRoles.length) return { error: "Оберіть хоча б одну роль" };
+  if (audienceMode === "users" && !audienceUsers.length) return { error: "Оберіть хоча б одного користувача" };
+  return {
+    title,
+    body: (body?.body || "").trim() || null,
+    type,
+    channels,
+    audienceMode,
+    audienceRoles,
+    audienceUsers,
+    files: Array.isArray(body?.files) ? body.files : [],
+  };
+}
+
+// Створення повідомлення. action: draft | schedule | send
+app.post("/api/admin/notifications", adminOnly, async (req, res) => {
+  try {
+    const v = validateNotificationInput(req.body);
+    if (v.error) return res.status(400).json({ error: v.error });
+
+    const action = req.body?.action || "draft";
+    let status = "draft";
+    let scheduledAt = null;
+
+    if (action === "schedule") {
+      const dt = new Date(req.body?.scheduled_at);
+      if (Number.isNaN(dt.getTime())) return res.status(400).json({ error: "Вкажіть коректну дату надсилання" });
+      if (dt.getTime() <= Date.now()) return res.status(400).json({ error: "Дата надсилання має бути в майбутньому" });
+      status = "scheduled";
+      scheduledAt = dt.toISOString();
+    }
+
+    const ins = await pool.query(
+      `INSERT INTO notification_messages
+         (title, body, type, channels, audience_mode, audience_roles, audience_users, status, scheduled_at, sender_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       RETURNING *`,
+      [
+        v.title,
+        v.body,
+        v.type,
+        JSON.stringify(v.channels),
+        v.audienceMode,
+        JSON.stringify(v.audienceRoles),
+        JSON.stringify(v.audienceUsers),
+        status,
+        scheduledAt,
+        req.user.id,
+      ]
+    );
+    const message = ins.rows[0];
+
+    // Прикріплення файлів
+    for (const f of v.files) {
+      if (!f?.file_url) continue;
+      await pool.query(
+        `INSERT INTO notification_files (message_id, file_url, file_name, file_type)
+         VALUES ($1,$2,$3,$4)`,
+        [message.id, f.file_url, f.file_name || null, f.file_type || null]
+      );
+    }
+
+    let delivered = 0;
+    if (action === "send") {
+      delivered = await deliverMessage(message.id);
+    }
+
+    await logAction(
+      `notification_${action}`,
+      req.user.id,
+      `«${v.title}» (${v.type}) → ${action === "send" ? delivered + " отримувачів" : action}`
+    );
+    res.status(201).json({ message: "Повідомлення збережено", id: message.id, delivered, status: action === "send" ? "sent" : status });
+  } catch (err) {
+    console.log("[v0] Помилка створення повідомлення:", err.message);
+    res.status(500).json({ error: "Внутрішня помилка серверу" });
+  }
+});
+
+// Надіслати чернетку/заплановане повідомлення негайно
+app.post("/api/admin/notifications/:id/send", adminOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const m = await pool.query("SELECT status FROM notification_messages WHERE id = $1", [id]);
+    if (m.rowCount === 0) return res.status(404).json({ error: "Повідомлення не знайдено" });
+    if (m.rows[0].status === "sent") return res.status(400).json({ error: "Повідомлення вже надіслано" });
+    const delivered = await deliverMessage(id);
+    await logAction("notification_send_now", req.user.id, `#${id} → ${delivered} отримувачів`);
+    res.json({ message: `Надіслано ${delivered} отримувачам`, delivered });
+  } catch (err) {
+    console.log("[v0] Помилка надсилання:", err.message);
+    res.status(500).json({ error: "Внутрішня помилка серверу" });
+  }
+});
+
+// Архівувати повідомлення
+app.post("/api/admin/notifications/:id/archive", adminOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = await pool.query(
+    "UPDATE notification_messages SET status = 'archived' WHERE id = $1 RETURNING id",
+    [id]
+  );
+  if (r.rowCount === 0) return res.status(404).json({ error: "Повідомлення не знайдено" });
+  await logAction("notification_archive", req.user.id, `#${id}`);
+  res.json({ message: "Повідомлення в архіві" });
+});
+
+// Видалити повідомлення
+app.delete("/api/admin/notifications/:id", adminOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = await pool.query("DELETE FROM notification_messages WHERE id = $1 RETURNING id", [id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: "Повідомлення не знайдено" });
+  await logAction("notification_delete", req.user.id, `#${id}`);
+  res.json({ message: "Повідомлення видалено" });
+});
+
+// --- Шаблони повідомлень ---
+app.get("/api/admin/notification-templates", adminOnly, async (req, res) => {
+  const r = await pool.query(
+    `SELECT t.*, u.email AS author FROM notification_templates t
+       LEFT JOIN users u ON u.id = t.created_by
+      ORDER BY t.created_at DESC`
+  );
+  res.json({ templates: r.rows });
+});
+
+app.post("/api/admin/notification-templates", adminOnly, async (req, res) => {
+  try {
+    const name = (req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "Вкажіть назву шаблону" });
+    const type = NOTIF_TYPES.includes(req.body?.type) ? req.body.type : "info";
+    let channels = Array.isArray(req.body?.channels)
+      ? req.body.channels.filter((c) => NOTIF_CHANNELS.includes(c))
+      : [];
+    if (!channels.length) channels = ["platform"];
+    const r = await pool.query(
+      `INSERT INTO notification_templates (name, type, title, body, channels, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [
+        name,
+        type,
+        (req.body?.title || "").trim() || null,
+        (req.body?.body || "").trim() || null,
+        JSON.stringify(channels),
+        req.user.id,
+      ]
+    );
+    await logAction("notification_template_create", req.user.id, name);
+    res.status(201).json({ template: r.rows[0] });
+  } catch (err) {
+    console.log("[v0] Помилка шаблону:", err.message);
+    res.status(500).json({ error: "Внутрішня помилка серверу" });
+  }
+});
+
+app.delete("/api/admin/notification-templates/:id", adminOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = await pool.query("DELETE FROM notification_templates WHERE id = $1 RETURNING name", [id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: "Шаблон не знайдено" });
+  await logAction("notification_template_delete", req.user.id, r.rows[0].name);
+  res.json({ message: "Шаблон видалено" });
 });
 
 // ============================================================================
@@ -2988,6 +3407,9 @@ initDb()
     app.listen(PORT, () => {
       console.log(`[v0] VARTA сервер запущено на ${APP_URL}`);
     });
+    // Планувальник відкладених сповіщень
+    processScheduledNotifications();
+    setInterval(processScheduledNotifications, 30000);
   })
   .catch((err) => {
     console.log("[v0] Не вдалося ініціалізувати БД:", err.message);

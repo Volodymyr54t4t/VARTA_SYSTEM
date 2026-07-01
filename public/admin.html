@@ -26,6 +26,7 @@
                 <button class="nav-item" data-page="schools">Управління школами</button>
                 <button class="nav-item" data-page="users">Управління користувачами</button>
                 <button class="nav-item" data-page="requests">Запити на ролі</button>
+                <button class="nav-item" data-page="notifications">Центр сповіщень</button>
                 <button class="nav-item" data-page="settings">Налаштування системи</button>
                 <button class="nav-item" data-page="logs">Логи системи</button>
             </nav>
@@ -166,6 +167,131 @@
                 </div>
             </section>
 
+            <!-- Центр сповіщень -->
+            <section class="page hidden" data-page="notifications">
+                <div class="tabs" id="notifTabs">
+                    <button class="tab active" data-tab="create">Створити повідомлення</button>
+                    <button class="tab" data-tab="history">Історія</button>
+                    <button class="tab" data-tab="templates">Шаблони</button>
+                </div>
+
+                <!-- Створення -->
+                <div class="tab-pane" data-tab="create">
+                    <div class="panel">
+                        <h2>Нове повідомлення</h2>
+                        <form id="notifForm" class="stack-form">
+                            <div class="field-row">
+                                <label class="field">
+                                    <span>Тип повідомлення</span>
+                                    <select id="notifType"></select>
+                                </label>
+                                <label class="field template-pick">
+                                    <span>Заповнити з шаблону</span>
+                                    <select id="notifTemplatePick">
+                                        <option value="">— без шаблону —</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            <label class="field">
+                                <span>Заголовок</span>
+                                <input type="text" id="notifTitle" placeholder="Напр. Відкрито реєстрацію на конкурс"
+                                    required />
+                            </label>
+
+                            <label class="field">
+                                <span>Текст повідомлення</span>
+                                <textarea id="notifBody" rows="4" placeholder="Деталі повідомлення..."></textarea>
+                            </label>
+
+                            <fieldset class="group">
+                                <legend>Канали доставки</legend>
+                                <div id="notifChannels" class="check-row"></div>
+                            </fieldset>
+
+                            <fieldset class="group">
+                                <legend>Отримувачі</legend>
+                                <div class="check-row">
+                                    <label class="radio"><input type="radio" name="audience" value="all" checked /> Усі
+                                        користувачі</label>
+                                    <label class="radio"><input type="radio" name="audience" value="roles" /> За
+                                        ролями</label>
+                                    <label class="radio"><input type="radio" name="audience" value="users" /> Окремі
+                                        користувачі</label>
+                                </div>
+                                <div id="audienceRoles" class="check-row sub hidden"></div>
+                                <div id="audienceUsers" class="sub hidden">
+                                    <input type="text" id="userSearch" class="user-search"
+                                        placeholder="Пошук користувача..." />
+                                    <div id="userList" class="user-list"></div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="group">
+                                <legend>Прикріплені файли</legend>
+                                <input type="file" id="notifFile" />
+                                <div id="notifFileList" class="file-list"></div>
+                            </fieldset>
+
+                            <fieldset class="group">
+                                <legend>Час надсилання</legend>
+                                <label class="radio"><input type="radio" name="when" value="now" checked /> Надіслати
+                                    миттєво</label>
+                                <label class="radio"><input type="radio" name="when" value="later" /> Відкладене
+                                    надсилання</label>
+                                <input type="datetime-local" id="notifSchedule" class="hidden schedule-input" />
+                            </fieldset>
+
+                            <div class="form-actions">
+                                <button type="button" class="btn ghost" data-action="draft">Зберегти чернетку</button>
+                                <button type="button" class="btn" data-action="save-template">Зберегти як
+                                    шаблон</button>
+                                <button type="submit" class="btn ok" id="notifSubmit">Надіслати</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Історія -->
+                <div class="tab-pane hidden" data-tab="history">
+                    <div class="panel">
+                        <h2>Історія повідомлень</h2>
+                        <table class="tbl">
+                            <thead>
+                                <tr>
+                                    <th>Заголовок</th>
+                                    <th>Тип</th>
+                                    <th>Статус</th>
+                                    <th>Отримувачі</th>
+                                    <th>Прочитано</th>
+                                    <th>Дата</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="notifBody_history"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Шаблони -->
+                <div class="tab-pane hidden" data-tab="templates">
+                    <div class="panel">
+                        <h2>Збережені шаблони</h2>
+                        <table class="tbl">
+                            <thead>
+                                <tr>
+                                    <th>Назва</th>
+                                    <th>Тип</th>
+                                    <th>Заголовок</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="templatesBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
             <!-- Налаштування -->
             <section class="page hidden" data-page="settings">
                 <div class="panel">
@@ -209,6 +335,14 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <!-- Модальне вікно деталей повідомлення -->
+    <div id="notifModal" class="modal hidden">
+        <div class="modal-card">
+            <button class="modal-close" id="notifModalClose" aria-label="Закрити">&times;</button>
+            <div id="notifModalContent"></div>
+        </div>
     </div>
 
     <script src="./admin.js"></script>
