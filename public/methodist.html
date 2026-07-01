@@ -32,6 +32,7 @@
                     Сповіщення
                     <span id="notifBadge" class="nav-badge hidden">0</span>
                 </button>
+                <button class="nav-item" data-page="broadcast">Розсилка</button>
                 <button class="nav-item" data-page="rules">Положення</button>
                 <button class="nav-item" data-page="archive">Архів</button>
                 <button class="nav-item" data-page="profile">Профіль</button>
@@ -234,6 +235,68 @@
                     </div>
                     <p class="hint">Повідомлення від адміністрації та системи платформи.</p>
                     <ul id="notificationsList" class="notif-list"></ul>
+                </div>
+            </section>
+
+            <!-- Розсилка -->
+            <section class="page hidden" data-page="broadcast">
+                <div class="panel">
+                    <h2>Нове сповіщення</h2>
+                    <p class="hint">Надсилайте повідомлення учасникам платформи. Розсилка доступна всім ролям, окрім
+                        адміністратора.</p>
+                    <form id="broadcastForm" class="stack-form">
+                        <label>Заголовок
+                            <input type="text" id="bTitle" placeholder="напр. Нагадування про дедлайн заявок"
+                                required />
+                        </label>
+                        <label>Текст повідомлення
+                            <textarea id="bBody" rows="4" placeholder="Деталі сповіщення для отримувачів"></textarea>
+                        </label>
+                        <div class="row2">
+                            <label>Тип
+                                <select id="bType"></select>
+                            </label>
+                            <div>
+                                <span class="field-label">Канали</span>
+                                <div id="bChannels" class="chk-group"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="field-label">Кому надіслати</span>
+                            <div class="radio-group">
+                                <label class="chk"><input type="radio" name="bAudience" value="all" checked /> Усім
+                                    (окрім адміністратора)</label>
+                                <label class="chk"><input type="radio" name="bAudience" value="roles" /> За
+                                    ролями</label>
+                                <label class="chk"><input type="radio" name="bAudience" value="users" /> Конкретним
+                                    користувачам</label>
+                            </div>
+                        </div>
+                        <div id="bRolesWrap" class="hidden">
+                            <span class="field-label">Ролі-отримувачі</span>
+                            <div id="bRoles" class="chk-group"></div>
+                        </div>
+                        <label id="bUsersWrap" class="hidden">Користувачі-отримувачі
+                            <select id="bUsers" multiple size="6"></select>
+                        </label>
+                        <button class="btn">Надіслати сповіщення</button>
+                    </form>
+                </div>
+                <div class="panel">
+                    <h2>Мої розсилки</h2>
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>Заголовок</th>
+                                <th>Тип</th>
+                                <th>Аудиторія</th>
+                                <th>Отримувачів</th>
+                                <th>Прочитали</th>
+                                <th>Надіслано</th>
+                            </tr>
+                        </thead>
+                        <tbody id="broadcastBody"></tbody>
+                    </table>
                 </div>
             </section>
 

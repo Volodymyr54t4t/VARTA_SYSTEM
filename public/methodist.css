@@ -399,6 +399,27 @@ body {
     flex: none;
 }
 
+.field-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.chk-group,
+.radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 8px 0;
+}
+
+.muted {
+    color: var(--muted, #6b7280);
+    font-size: 12px;
+}
+
 input:focus,
 select:focus,
 textarea:focus {

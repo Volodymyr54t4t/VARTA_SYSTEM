@@ -28,6 +28,7 @@ const PAGE_TITLES = {
   analytics: "Аналітика",
   jury: "Панель журі",
   notifications: "Сповіщення",
+  broadcast: "Розсилка",
   rules: "Положення",
   archive: "Архів",
   profile: "Профіль",
@@ -77,6 +78,7 @@ const loaders = {
   analytics: loadAnalytics,
   jury: loadJury,
   notifications: loadNotifications,
+  broadcast: loadBroadcast,
   rules: loadRulesPage,
   archive: loadArchive,
   profile: loadProfile,
@@ -365,7 +367,7 @@ $("profileForm").addEventListener("submit", async (e) => {
 //  МОДАЛЬНЕ ВІКНО НАЛАШТУВАННЯ КОНКУРСУ
 // ============================================================================
 let current = null; // { competition, sections, form, rules, judges }
-let fieldsState = []; // поточні поля форми, що редагуються
+let fieldsState = []; // поточн�� поля форми, що редагуються
 
 async function openModal(id, tab = "sections") {
   const data = await getJSON(`/api/methodist/competitions/${id}`);
@@ -667,6 +669,126 @@ $("markAllReadBtn").onclick = async () => {
   toast("ok", data.message);
   loadNotifications();
 };
+
+// ---- Розсилка сповіщень ------------------------------------------------------
+const NOTIF_TYPE_LABELS = {
+  system: "Системне",
+  info: "Інформація",
+  urgent: "Терміново",
+  reminder: "Нагадування",
+  result: "Результат",
+  registration: "Реєстрація",
+};
+const NOTIF_CHANNEL_LABELS = {
+  platform: "На платформі",
+  email: "Email",
+  push: "Push",
+  telegram: "Telegram",
+};
+const ROLE_LABELS = {
+  methodist: "Методист",
+  zavuch: "Завуч",
+  teacher: "Вчитель",
+  student: "Учень",
+  jury: "Журі",
+  system: "Система",
+};
+const AUDIENCE_MODE_LABELS = { all: "Усі ролі", roles: "За ролями", users: "Обрані користувачі" };
+
+let broadcastMetaLoaded = false;
+
+async function loadBroadcast() {
+  if (!broadcastMetaLoaded) {
+    const meta = await getJSON("/api/methodist/notifications/meta");
+    // Типи
+    $("bType").innerHTML = meta.types
+      .map((t) => `<option value="${t}">${NOTIF_TYPE_LABELS[t] || t}</option>`)
+      .join("");
+    // Канали (за замовчуванням — платформа)
+    $("bChannels").innerHTML = meta.channels
+      .map(
+        (c) =>
+          `<label class="chk"><input type="checkbox" value="${c}" ${c === "platform" ? "checked" : ""} /> ${NOTIF_CHANNEL_LABELS[c] || c}</label>`
+      )
+      .join("");
+    // Ролі
+    const counts = Object.fromEntries((meta.roleCounts || []).map((r) => [r.role, r.c]));
+    $("bRoles").innerHTML = meta.roles
+      .map(
+        (r) =>
+          `<label class="chk"><input type="checkbox" value="${r}" /> ${ROLE_LABELS[r] || r} <span class="muted">(${counts[r] || 0})</span></label>`
+      )
+      .join("");
+    // Користувачі
+    $("bUsers").innerHTML = meta.users
+      .map(
+        (u) =>
+          `<option value="${u.id}">${esc(u.full_name || u.email)} — ${ROLE_LABELS[u.role] || u.role}</option>`
+      )
+      .join("");
+    broadcastMetaLoaded = true;
+  }
+  loadBroadcastHistory();
+}
+
+async function loadBroadcastHistory() {
+  const { notifications } = await getJSON("/api/methodist/notifications/sent");
+  $("broadcastBody").innerHTML = notifications.length
+    ? notifications
+        .map((n) => {
+          const roles = Array.isArray(n.audience_roles) ? n.audience_roles : [];
+          const audience =
+            n.audience_mode === "roles" && roles.length
+              ? roles.map((r) => ROLE_LABELS[r] || r).join(", ")
+              : AUDIENCE_MODE_LABELS[n.audience_mode] || n.audience_mode;
+          return `<tr>
+            <td>${esc(n.title)}</td>
+            <td>${NOTIF_TYPE_LABELS[n.type] || n.type}</td>
+            <td>${esc(audience)}</td>
+            <td>${n.recipients}</td>
+            <td>${n.read_count}</td>
+            <td>${fmtDate(n.sent_at || n.created_at)}</td>
+          </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="6" class="empty-list">Ви ще не надсилали сповіщень</td></tr>`;
+}
+
+// Перемикання видимості блоків аудиторії
+document.querySelectorAll('input[name="bAudience"]').forEach((radio) => {
+  radio.addEventListener("change", () => {
+    const mode = document.querySelector('input[name="bAudience"]:checked').value;
+    $("bRolesWrap").classList.toggle("hidden", mode !== "roles");
+    $("bUsersWrap").classList.toggle("hidden", mode !== "users");
+  });
+});
+
+$("broadcastForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const title = $("bTitle").value.trim();
+  if (!title) return toast("err", "Вкажіть заголовок");
+  const channels = [...$("bChannels").querySelectorAll("input:checked")].map((c) => c.value);
+  const mode = document.querySelector('input[name="bAudience"]:checked').value;
+  const payload = {
+    title,
+    body: $("bBody").value.trim(),
+    type: $("bType").value,
+    channels,
+    audience_mode: mode,
+    audience_roles: [...$("bRoles").querySelectorAll("input:checked")].map((c) => c.value),
+    audience_users: [...$("bUsers").selectedOptions].map((o) => Number(o.value)),
+  };
+  const { ok, data } = await send("POST", "/api/methodist/notifications/send", payload);
+  if (!ok) return toast("err", data.error || "Помилка надсилання");
+  toast("ok", data.message);
+  $("broadcastForm").reset();
+  $("bRolesWrap").classList.add("hidden");
+  $("bUsersWrap").classList.add("hidden");
+  // Повертаємо канал «платформа» за замовчуванням
+  const platformChk = $("bChannels").querySelector('input[value="platform"]');
+  if (platformChk) platformChk.checked = true;
+  loadBroadcastHistory();
+});
 
 // ---- Старт ------------------------------------------------------------------
 (async function init() {
