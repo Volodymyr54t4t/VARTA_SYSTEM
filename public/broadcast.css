@@ -1,0 +1,329 @@
+/* ============================================================================
+   VARTA — стилі спільного модуля "Розсилка".
+   Самодостатні (bc- префікс), використовують токени панелі з безпечними
+   запасними значеннями, щоб виглядати однаково у будь-якій ролі.
+   ============================================================================ */
+
+.bc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.bc-tab {
+  padding: 10px 18px;
+  border: 1px solid var(--border, #e1e7f0);
+  background: var(--panel, #fff);
+  color: var(--muted, #687288);
+  border-radius: var(--radius, 12px);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.bc-tab:hover {
+  color: var(--ink, #1b2434);
+}
+.bc-tab.active {
+  background: var(--primary, #2563eb);
+  border-color: var(--primary, #2563eb);
+  color: #fff;
+}
+
+.bc-panel {
+  background: var(--panel, #fff);
+  border: 1px solid var(--border, #e1e7f0);
+  border-radius: var(--radius, 12px);
+  padding: 24px;
+}
+.bc-panel h2 {
+  margin: 0 0 18px;
+  font-size: 1.15rem;
+  color: var(--ink, #1b2434);
+}
+
+.bc-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 720px;
+}
+.bc-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.bc-row .bc-field {
+  flex: 1 1 240px;
+}
+.bc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bc-field > span {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted, #687288);
+}
+.bc-field input[type="text"],
+.bc-field select,
+.bc-field textarea,
+.bc-search,
+.bc-schedule {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e1e7f0);
+  border-radius: 10px;
+  font: inherit;
+  color: var(--ink, #1b2434);
+  background: #fff;
+}
+.bc-field textarea {
+  resize: vertical;
+}
+.bc-field input:focus,
+.bc-field select:focus,
+.bc-field textarea:focus,
+.bc-search:focus {
+  outline: none;
+  border-color: var(--primary, #2563eb);
+}
+
+.bc-group {
+  border: 1px solid var(--border, #e1e7f0);
+  border-radius: var(--radius, 12px);
+  padding: 14px 16px;
+}
+.bc-group legend {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink, #1b2434);
+  padding: 0 6px;
+}
+.bc-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+.bc-check,
+.bc-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+  color: var(--ink, #1b2434);
+  cursor: pointer;
+}
+.bc-check small,
+.bc-radio small {
+  color: var(--muted, #687288);
+}
+.bc-sub {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border, #e1e7f0);
+}
+.bc-search {
+  margin-bottom: 10px;
+}
+.bc-userlist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.bc-filelist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.bc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg, #eef2f8);
+  border: 1px solid var(--border, #e1e7f0);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: var(--ink, #1b2434);
+}
+.bc-chip button {
+  border: none;
+  background: none;
+  color: var(--err, #dc2626);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.bc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* Таблиці */
+.bc-tablewrap {
+  overflow-x: auto;
+}
+.bc-cell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  white-space: nowrap;
+}
+.bc-empty {
+  text-align: center;
+  color: var(--muted, #687288);
+  padding: 24px 0;
+}
+
+/* Бейджі типів та статусів */
+.bc-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--bg, #eef2f8);
+  color: var(--ink, #1b2434);
+  border: 1px solid var(--border, #e1e7f0);
+}
+.bc-badge.type-urgent {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+.bc-badge.type-system {
+  background: #e0e7ff;
+  color: #3730a3;
+  border-color: #c7d2fe;
+}
+.bc-badge.type-result {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+.bc-badge.type-reminder {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+.bc-badge.type-registration {
+  background: #cffafe;
+  color: #155e75;
+  border-color: #a5f3fc;
+}
+
+.bc-status {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--bg, #eef2f8);
+  color: var(--muted, #687288);
+}
+.bc-status.sent {
+  background: #dcfce7;
+  color: #166534;
+}
+.bc-status.scheduled {
+  background: #fef3c7;
+  color: #92400e;
+}
+.bc-status.draft {
+  background: #e2e8f0;
+  color: #475569;
+}
+.bc-status.archived {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+/* Модалка деталей */
+.bc-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+.bc-modal.hidden {
+  display: none;
+}
+.bc-modal-card {
+  position: relative;
+  background: var(--panel, #fff);
+  border-radius: var(--radius, 12px);
+  padding: 28px;
+  max-width: 760px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+.bc-modal-card h2 {
+  margin: 0 0 12px;
+  color: var(--ink, #1b2434);
+}
+.bc-modal-card h3 {
+  margin: 22px 0 10px;
+  color: var(--ink, #1b2434);
+  font-size: 1rem;
+}
+.bc-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  border: none;
+  background: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--muted, #687288);
+  cursor: pointer;
+}
+.bc-metarow {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.bc-modalbody {
+  color: var(--ink, #1b2434);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.bc-modalsec {
+  margin: 10px 0;
+  color: var(--ink, #1b2434);
+  font-size: 0.92rem;
+}
+.bc-pill {
+  display: inline-block;
+  padding: 4px 10px;
+  margin: 2px 4px 2px 0;
+  background: var(--bg, #eef2f8);
+  border: 1px solid var(--border, #e1e7f0);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  color: var(--ink, #1b2434);
+  text-decoration: none;
+}
+.bc-modalscroll {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #e1e7f0);
+  border-radius: 10px;
+}
+
+.hidden {
+  display: none !important;
+}

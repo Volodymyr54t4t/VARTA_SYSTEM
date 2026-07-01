@@ -1383,6 +1383,271 @@ app.delete("/api/admin/notification-templates/:id", adminOnly, async (req, res) 
 });
 
 // ============================================================================
+//  СПІЛЬНА РОЗСИЛКА (Центр сповіщень для ВСІХ ролей)
+//  Будь-яка роль (крім гостя) може створювати та надсилати повідомлення
+//  так само, як методист чи адмін. Кожен бачить лише власні розсилки;
+//  адмін/система бачать усі.
+// ============================================================================
+const anyRoleOnly = [
+  authRequired,
+  roleRequired("methodist", "zavuch", "teacher", "student", "jury", "admin", "system"),
+];
+
+// Чи має користувач привілейований доступ (бачить усі розсилки, а не лише свої).
+function isPrivileged(req) {
+  return req.user?.role === "admin" || req.user?.role === "system";
+}
+
+// Довідник для форми розсилки
+app.get("/api/broadcast/meta", anyRoleOnly, async (req, res) => {
+  const users = await pool.query(
+    `SELECT u.id, u.email, u.role, p.full_name
+       FROM users u
+       LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE u.role <> 'guest'
+      ORDER BY p.full_name NULLS LAST, u.email`
+  );
+  const byRole = await pool.query(
+    "SELECT role, COUNT(*)::int AS c FROM users WHERE role <> 'guest' GROUP BY role"
+  );
+  res.json({
+    types: NOTIF_TYPES,
+    channels: NOTIF_CHANNELS,
+    roles: ROLES.filter((r) => r !== "guest"),
+    users: users.rows,
+    roleCounts: byRole.rows,
+  });
+});
+
+// Історія розсилок поточного користувача (адмін/система бачать усі)
+app.get("/api/broadcast", anyRoleOnly, async (req, res) => {
+  const all = isPrivileged(req);
+  const r = await pool.query(
+    `SELECT nm.*, u.email AS sender_email,
+            (SELECT COUNT(*)::int FROM notification_users nu WHERE nu.message_id = nm.id) AS recipients,
+            (SELECT COUNT(*)::int FROM notification_users nu WHERE nu.message_id = nm.id AND nu.is_read) AS read_count,
+            (SELECT COUNT(*)::int FROM notification_files nf WHERE nf.message_id = nm.id) AS files_count
+       FROM notification_messages nm
+       LEFT JOIN users u ON u.id = nm.sender_id
+      WHERE $1::boolean OR nm.sender_id = $2
+      ORDER BY nm.created_at DESC
+      LIMIT 200`,
+    [all, req.user.id]
+  );
+  res.json({ notifications: r.rows });
+});
+
+// Деталі розсилки (лише власної, якщо не привілейований)
+app.get("/api/broadcast/:id", anyRoleOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const m = await pool.query("SELECT * FROM notification_messages WHERE id = $1", [id]);
+  if (m.rowCount === 0) return res.status(404).json({ error: "Повідомлення не знайдено" });
+  if (!isPrivileged(req) && m.rows[0].sender_id !== req.user.id) {
+    return res.status(403).json({ error: "Недостатньо прав" });
+  }
+  const [recipients, files, logs] = await Promise.all([
+    pool.query(
+      `SELECT nu.is_read, nu.read_at, u.email, u.role, p.full_name
+         FROM notification_users nu
+         JOIN users u ON u.id = nu.user_id
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+        WHERE nu.message_id = $1
+        ORDER BY nu.is_read, u.email`,
+      [id]
+    ),
+    pool.query("SELECT id, file_url, file_name, file_type FROM notification_files WHERE message_id = $1", [id]),
+    pool.query(
+      `SELECT nl.channel, nl.status, nl.detail, nl.created_at, u.email
+         FROM notification_logs nl
+         LEFT JOIN users u ON u.id = nl.user_id
+        WHERE nl.message_id = $1
+        ORDER BY nl.created_at DESC
+        LIMIT 300`,
+      [id]
+    ),
+  ]);
+  res.json({ message: m.rows[0], recipients: recipients.rows, files: files.rows, logs: logs.rows });
+});
+
+// Завантаження файлу-вкладення для розсилки
+app.post("/api/broadcast/upload", anyRoleOnly, upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Файл не отримано" });
+  res.status(201).json({
+    file: {
+      file_url: `/uploads/${req.file.filename}`,
+      file_name: req.file.originalname,
+      file_type: req.file.mimetype,
+    },
+  });
+});
+
+// Створення розсилки. action: draft | schedule | send
+app.post("/api/broadcast", anyRoleOnly, async (req, res) => {
+  try {
+    const v = validateNotificationInput(req.body);
+    if (v.error) return res.status(400).json({ error: v.error });
+
+    const action = req.body?.action || "draft";
+    let status = "draft";
+    let scheduledAt = null;
+
+    if (action === "schedule") {
+      const dt = new Date(req.body?.scheduled_at);
+      if (Number.isNaN(dt.getTime())) return res.status(400).json({ error: "Вкажіть коректну дату надсилання" });
+      if (dt.getTime() <= Date.now()) return res.status(400).json({ error: "Дата надсилання має бути в майбутньому" });
+      status = "scheduled";
+      scheduledAt = dt.toISOString();
+    }
+
+    const ins = await pool.query(
+      `INSERT INTO notification_messages
+         (title, body, type, channels, audience_mode, audience_roles, audience_users, status, scheduled_at, sender_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       RETURNING *`,
+      [
+        v.title,
+        v.body,
+        v.type,
+        JSON.stringify(v.channels),
+        v.audienceMode,
+        JSON.stringify(v.audienceRoles),
+        JSON.stringify(v.audienceUsers),
+        status,
+        scheduledAt,
+        req.user.id,
+      ]
+    );
+    const message = ins.rows[0];
+
+    for (const f of v.files) {
+      if (!f?.file_url) continue;
+      await pool.query(
+        `INSERT INTO notification_files (message_id, file_url, file_name, file_type)
+         VALUES ($1,$2,$3,$4)`,
+        [message.id, f.file_url, f.file_name || null, f.file_type || null]
+      );
+    }
+
+    let delivered = 0;
+    if (action === "send") delivered = await deliverMessage(message.id);
+
+    await logAction(
+      `broadcast_${action}`,
+      req.user.id,
+      `«${v.title}» (${v.type}) → ${action === "send" ? delivered + " отримувачів" : action}`
+    );
+    res.status(201).json({
+      message: "Повідомлення збережено",
+      id: message.id,
+      delivered,
+      status: action === "send" ? "sent" : status,
+    });
+  } catch (err) {
+    console.log("[v0] Помилка створення розсилки:", err.message);
+    res.status(500).json({ error: "Внутрішня помилка серверу" });
+  }
+});
+
+// Надіслати чернетку/заплановане повідомлення негайно
+app.post("/api/broadcast/:id/send", anyRoleOnly, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const m = await pool.query("SELECT status, sender_id FROM notification_messages WHERE id = $1", [id]);
+    if (m.rowCount === 0) return res.status(404).json({ error: "Повідомлення не знайдено" });
+    if (!isPrivileged(req) && m.rows[0].sender_id !== req.user.id) {
+      return res.status(403).json({ error: "Недостатньо прав" });
+    }
+    if (m.rows[0].status === "sent") return res.status(400).json({ error: "Повідомлення вже надіслано" });
+    const delivered = await deliverMessage(id);
+    await logAction("broadcast_send_now", req.user.id, `#${id} → ${delivered} отримувачів`);
+    res.json({ message: `Надіслано ${delivered} отримувачам`, delivered });
+  } catch (err) {
+    console.log("[v0] Помилка надсилання розсилки:", err.message);
+    res.status(500).json({ error: "Внутрішня помилка серверу" });
+  }
+});
+
+// Архівувати розсилку
+app.post("/api/broadcast/:id/archive", anyRoleOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const m = await pool.query("SELECT sender_id FROM notification_messages WHERE id = $1", [id]);
+  if (m.rowCount === 0) return res.status(404).json({ error: "Повідомлення не знайдено" });
+  if (!isPrivileged(req) && m.rows[0].sender_id !== req.user.id) {
+    return res.status(403).json({ error: "Недостатньо прав" });
+  }
+  await pool.query("UPDATE notification_messages SET status = 'archived' WHERE id = $1", [id]);
+  await logAction("broadcast_archive", req.user.id, `#${id}`);
+  res.json({ message: "Повідомлення в архіві" });
+});
+
+// Видалити розсилку
+app.delete("/api/broadcast/:id", anyRoleOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const m = await pool.query("SELECT sender_id FROM notification_messages WHERE id = $1", [id]);
+  if (m.rowCount === 0) return res.status(404).json({ error: "Повідомлення не знайдено" });
+  if (!isPrivileged(req) && m.rows[0].sender_id !== req.user.id) {
+    return res.status(403).json({ error: "Недостатньо прав" });
+  }
+  await pool.query("DELETE FROM notification_messages WHERE id = $1", [id]);
+  await logAction("broadcast_delete", req.user.id, `#${id}`);
+  res.json({ message: "Повідомлення видалено" });
+});
+
+// --- Шаблони розсилки (персональні) ---
+app.get("/api/broadcast/templates", anyRoleOnly, async (req, res) => {
+  const all = isPrivileged(req);
+  const r = await pool.query(
+    `SELECT t.*, u.email AS author FROM notification_templates t
+       LEFT JOIN users u ON u.id = t.created_by
+      WHERE $1::boolean OR t.created_by = $2
+      ORDER BY t.created_at DESC`,
+    [all, req.user.id]
+  );
+  res.json({ templates: r.rows });
+});
+
+app.post("/api/broadcast/templates", anyRoleOnly, async (req, res) => {
+  try {
+    const name = (req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "Вкажіть назву шаблону" });
+    const type = NOTIF_TYPES.includes(req.body?.type) ? req.body.type : "info";
+    let channels = Array.isArray(req.body?.channels)
+      ? req.body.channels.filter((c) => NOTIF_CHANNELS.includes(c))
+      : [];
+    if (!channels.length) channels = ["platform"];
+    const r = await pool.query(
+      `INSERT INTO notification_templates (name, type, title, body, channels, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [
+        name,
+        type,
+        (req.body?.title || "").trim() || null,
+        (req.body?.body || "").trim() || null,
+        JSON.stringify(channels),
+        req.user.id,
+      ]
+    );
+    await logAction("broadcast_template_create", req.user.id, name);
+    res.status(201).json({ template: r.rows[0] });
+  } catch (err) {
+    console.log("[v0] Помилка шаблону розсилки:", err.message);
+    res.status(500).json({ error: "Внутрішня помилка серверу" });
+  }
+});
+
+app.delete("/api/broadcast/templates/:id", anyRoleOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const t = await pool.query("SELECT name, created_by FROM notification_templates WHERE id = $1", [id]);
+  if (t.rowCount === 0) return res.status(404).json({ error: "Шаблон не знайдено" });
+  if (!isPrivileged(req) && t.rows[0].created_by !== req.user.id) {
+    return res.status(403).json({ error: "Недостатньо прав" });
+  }
+  await pool.query("DELETE FROM notification_templates WHERE id = $1", [id]);
+  await logAction("broadcast_template_delete", req.user.id, t.rows[0].name);
+  res.json({ message: "Шаблон видалено" });
+});
+
+// ============================================================================
 //  ПАНЕЛЬ МЕТОДИСТА (роль "methodist", з доступом для admin/system)
 //  Можливості: створення конкурсів, секцій, форм, положень,
 //  призначення журі, публікація, шаблони, заявки, результати, аналітика.
