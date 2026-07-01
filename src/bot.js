@@ -280,8 +280,214 @@ async function buildRoleDetails(user) {
   return lines.join("\n");
 }
 
+// ----------------------------------------------------------------------------
+//  АДМІН-РЕЖИМ: перегляд усіх даних платформи (як в адмін-панелі)
+// ----------------------------------------------------------------------------
+const PAGE_SIZE = 10;
+
+// Екранування для parse_mode: HTML
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function isAdmin(session) {
+  return (
+    session.step === "authorized" &&
+    session.user &&
+    ["admin", "system"].includes(session.user.role)
+  );
+}
+
+// Опис кожного розділу: як отримати сторінку даних і як показати рядок.
+// Запити повторюють ті самі, що й адмінські ендпоінти в src/server.js.
+const ADMIN_SECTIONS = {
+  users: {
+    title: "👥 Користувачі",
+    async page(offset) {
+      const total = (await pool.query("SELECT COUNT(*)::int AS c FROM users")).rows[0].c;
+      const r = await pool.query(
+        `SELECT u.id, u.email, u.role, u.status, p.full_name
+           FROM users u
+           LEFT JOIN user_profiles p ON p.user_id = u.id
+          ORDER BY u.created_at DESC
+          LIMIT $1 OFFSET $2`,
+        [PAGE_SIZE, offset]
+      );
+      return { total, rows: r.rows };
+    },
+    format: (u) =>
+      `#${u.id} <b>${esc(u.full_name || u.email)}</b>\n` +
+      `   📧 ${esc(u.email)}\n` +
+      `   🔑 ${esc(ROLE_LABELS[u.role] || u.role)} · ${esc(u.status)}`,
+  },
+
+  schools: {
+    title: "🏫 Школи",
+    async page(offset) {
+      const total = (await pool.query("SELECT COUNT(*)::int AS c FROM schools")).rows[0].c;
+      const r = await pool.query(
+        `SELECT s.id, s.name, s.address, c.name AS city_name, r.name AS region_name
+           FROM schools s
+           JOIN cities c ON c.id = s.city_id
+           JOIN regions r ON r.id = c.region_id
+          ORDER BY r.name, c.name, s.name
+          LIMIT $1 OFFSET $2`,
+        [PAGE_SIZE, offset]
+      );
+      return { total, rows: r.rows };
+    },
+    format: (s) =>
+      `#${s.id} <b>${esc(s.name)}</b>\n` +
+      `   📍 ${esc(s.region_name)}, ${esc(s.city_name)}` +
+      (s.address ? ` · ${esc(s.address)}` : ""),
+  },
+
+  regions: {
+    title: "🗺 Області",
+    async page(offset) {
+      const total = (await pool.query("SELECT COUNT(*)::int AS c FROM regions")).rows[0].c;
+      const r = await pool.query(
+        `SELECT r.id, r.name,
+                (SELECT COUNT(*)::int FROM cities c WHERE c.region_id = r.id) AS cities_count
+           FROM regions r
+          ORDER BY r.name
+          LIMIT $1 OFFSET $2`,
+        [PAGE_SIZE, offset]
+      );
+      return { total, rows: r.rows };
+    },
+    format: (r) => `#${r.id} <b>${esc(r.name)}</b> — міст: ${r.cities_count}`,
+  },
+
+  cities: {
+    title: "🏙 Міста",
+    async page(offset) {
+      const total = (await pool.query("SELECT COUNT(*)::int AS c FROM cities")).rows[0].c;
+      const r = await pool.query(
+        `SELECT c.id, c.name, r.name AS region_name,
+                (SELECT COUNT(*)::int FROM schools s WHERE s.city_id = c.id) AS schools_count
+           FROM cities c
+           JOIN regions r ON r.id = c.region_id
+          ORDER BY r.name, c.name
+          LIMIT $1 OFFSET $2`,
+        [PAGE_SIZE, offset]
+      );
+      return { total, rows: r.rows };
+    },
+    format: (c) =>
+      `#${c.id} <b>${esc(c.name)}</b> (${esc(c.region_name)}) — шкіл: ${c.schools_count}`,
+  },
+
+  "role-requests": {
+    title: "📋 Запити на ролі",
+    async page(offset) {
+      const total = (await pool.query("SELECT COUNT(*)::int AS c FROM user_roles_requests")).rows[0].c;
+      const r = await pool.query(
+        `SELECT rr.id, rr.role, rr.status, u.email, p.full_name
+           FROM user_roles_requests rr
+           JOIN users u ON u.id = rr.user_id
+           LEFT JOIN user_profiles p ON p.user_id = u.id
+          ORDER BY rr.created_at DESC
+          LIMIT $1 OFFSET $2`,
+        [PAGE_SIZE, offset]
+      );
+      return { total, rows: r.rows };
+    },
+    format: (rr) =>
+      `#${rr.id} <b>${esc(rr.full_name || rr.email)}</b>\n` +
+      `   → ${esc(ROLE_LABELS[rr.role] || rr.role)} · <i>${esc(rr.status)}</i>`,
+  },
+
+  competitions: {
+    title: "🏆 Конкурси",
+    async page(offset) {
+      const total = (await pool.query("SELECT COUNT(*)::int AS c FROM competitions")).rows[0].c;
+      const r = await pool.query(
+        `SELECT c.id, c.title, c.status, p.full_name AS methodist
+           FROM competitions c
+           LEFT JOIN user_profiles p ON p.user_id = c.methodist_id
+          ORDER BY c.created_at DESC
+          LIMIT $1 OFFSET $2`,
+        [PAGE_SIZE, offset]
+      );
+      return { total, rows: r.rows };
+    },
+    format: (c) =>
+      `#${c.id} <b>${esc(c.title)}</b> · <i>${esc(c.status)}</i>` +
+      (c.methodist ? `\n   👤 ${esc(c.methodist)}` : ""),
+  },
+
+  logs: {
+    title: "📜 Логи системи",
+    async page(offset) {
+      const total = (await pool.query("SELECT COUNT(*)::int AS c FROM system_logs")).rows[0].c;
+      const r = await pool.query(
+        `SELECT l.id, l.action, l.details, l.created_at, u.email AS actor
+           FROM system_logs l
+           LEFT JOIN users u ON u.id = l.user_id
+          ORDER BY l.created_at DESC
+          LIMIT $1 OFFSET $2`,
+        [PAGE_SIZE, offset]
+      );
+      return { total, rows: r.rows };
+    },
+    format: (l) =>
+      `<b>${esc(l.action)}</b>${l.details ? ` — ${esc(l.details)}` : ""}\n` +
+      `   👤 ${esc(l.actor || "система")}`,
+  },
+};
+
+// Формує текст сторінки розділу + інлайн-кнопки навігації
+async function renderAdminSection(key, page) {
+  const section = ADMIN_SECTIONS[key];
+  const offset = page * PAGE_SIZE;
+  const { total, rows } = await section.page(offset);
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const header =
+    `<b>${esc(section.title)}</b> — всього: ${total}\n` +
+    `Сторінка ${page + 1}/${pages}`;
+  const body = rows.length ? rows.map(section.format).join("\n\n") : "Порожньо.";
+
+  const nav = [];
+  if (page > 0) nav.push(Markup.button.callback("⬅️ Назад", `adm:${key}:${page - 1}`));
+  if (page < pages - 1) nav.push(Markup.button.callback("Далі ➡️", `adm:${key}:${page + 1}`));
+
+  return {
+    text: `${header}\n\n${body}`,
+    keyboard: nav.length ? Markup.inlineKeyboard([nav]) : undefined,
+  };
+}
+
+async function sendAdminSection(ctx, key) {
+  const session = getSession(ctx.chat.id);
+  if (!isAdmin(session)) {
+    return ctx.reply("Цей розділ доступний лише адміністратору.");
+  }
+  const { text, keyboard } = await renderAdminSection(key, 0);
+  return ctx.reply(text, { parse_mode: "HTML", ...(keyboard || {}) });
+}
+
+// Меню для звичайних ролей
 const menuKeyboard = Markup.keyboard([["👤 Мій профіль", "🔔 Сповіщення"], ["🚪 Вийти"]])
   .resize();
+
+// Розширене меню адміністратора — перегляд усіх даних платформи
+const adminMenuKeyboard = Markup.keyboard([
+  ["👥 Користувачі", "🏫 Школи"],
+  ["🗺 Області", "🏙 Міста"],
+  ["📋 Запити ролей", "🏆 Конкурси"],
+  ["📜 Логи", "📊 Статистика"],
+  ["🔔 Сповіщення", "👤 Мій профіль"],
+  ["🚪 Вийти"],
+]).resize();
+
+// Обирає меню відповідно до ролі користувача
+function keyboardFor(user) {
+  return ["admin", "system"].includes(user.role) ? adminMenuKeyboard : menuKeyboard;
+}
 
 // ----------------------------------------------------------------------------
 //  Хендлери
@@ -334,6 +540,39 @@ bot.hears("🔔 Сповіщення", async (ctx) => {
   await ctx.reply(`*Останні сповіщення:*\n\n${text}`, { parse_mode: "Markdown" });
 });
 
+// --- Адмінські розділи (перегляд усіх даних платформи) ---
+bot.hears("👥 Користувачі", (ctx) => sendAdminSection(ctx, "users"));
+bot.hears("🏫 Школи", (ctx) => sendAdminSection(ctx, "schools"));
+bot.hears("🗺 Області", (ctx) => sendAdminSection(ctx, "regions"));
+bot.hears("🏙 Міста", (ctx) => sendAdminSection(ctx, "cities"));
+bot.hears("📋 Запити ролей", (ctx) => sendAdminSection(ctx, "role-requests"));
+bot.hears("🏆 Конкурси", (ctx) => sendAdminSection(ctx, "competitions"));
+bot.hears("📜 Логи", (ctx) => sendAdminSection(ctx, "logs"));
+
+bot.hears("📊 Статистика", async (ctx) => {
+  const session = getSession(ctx.chat.id);
+  if (!isAdmin(session)) return ctx.reply("Цей розділ доступний лише адміністратору.");
+  const details = await buildRoleDetails(session.user);
+  await ctx.reply(details, { parse_mode: "Markdown" });
+});
+
+// Пагінація адмінських списків (інлайн-кнопки ⬅️ / ➡️)
+bot.action(/^adm:([a-z-]+):(\d+)$/, async (ctx) => {
+  const session = getSession(ctx.chat.id);
+  if (!isAdmin(session)) return ctx.answerCbQuery("Немає доступу");
+  const key = ctx.match[1];
+  const page = parseInt(ctx.match[2], 10);
+  if (!ADMIN_SECTIONS[key]) return ctx.answerCbQuery();
+  try {
+    const { text, keyboard } = await renderAdminSection(key, page);
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(text, { parse_mode: "HTML", ...(keyboard || {}) });
+  } catch (err) {
+    console.error("[v0] Помилка пагінації:", err.message);
+    await ctx.answerCbQuery("Помилка завантаження");
+  }
+});
+
 // Головний обробник тексту — керує кроками авторизації
 bot.on("text", async (ctx) => {
   const session = getSession(ctx.chat.id);
@@ -371,13 +610,13 @@ bot.on("text", async (ctx) => {
       const details = await buildRoleDetails(result.user);
       return ctx.reply(`${header}\n\n${details}`, {
         parse_mode: "Markdown",
-        ...menuKeyboard,
+        ...keyboardFor(result.user),
       });
     }
 
     // Не в процесі входу
     if (session.step === "authorized") {
-      return ctx.reply("Скористайтеся меню нижче або командою /start.", menuKeyboard);
+      return ctx.reply("Скористайтеся меню нижче або командою /start.", keyboardFor(session.user));
     }
 
     return ctx.reply("Натисніть /start, щоб увійти.");
