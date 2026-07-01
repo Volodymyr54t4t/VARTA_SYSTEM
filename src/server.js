@@ -2010,7 +2010,7 @@ app.get("/api/zavuch/me", zavuchOnly, async (req, res) => {
 app.post("/api/zavuch/school", zavuchOnly, async (req, res) => {
   try {
     const schoolId = parseInt(req.body?.school_id, 10);
-    if (!schoolId) return res.status(400).json({ error: "Оберіть школу" });
+    if (!schoolId) return res.status(400).json({ error: "Оберіть ш��олу" });
     const privileged = req.user.role === "admin" || req.user.role === "system";
 
     const s = await pool.query("SELECT * FROM schools WHERE id = $1", [schoolId]);
@@ -2260,6 +2260,41 @@ app.put("/api/zavuch/profile", zavuchOnly, async (req, res) => {
     );
   }
   res.json({ message: "Профіль збережено" });
+});
+
+// --- Сповіщення завуча (особиста скринька) -----------------------------------
+app.get("/api/zavuch/notifications", zavuchOnly, async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, message, is_read, created_at FROM notifications
+      WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
+    [req.user.id]
+  );
+  const unread = r.rows.filter((n) => !n.is_read).length;
+  res.json({ notifications: r.rows, unread });
+});
+
+app.patch("/api/zavuch/notifications/:id/read", zavuchOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const upd = await pool.query(
+    "UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2 RETURNING id",
+    [id, req.user.id]
+  );
+  if (upd.rowCount === 0) return res.status(404).json({ error: "Сповіщення не знайдено" });
+  // Синхронізуємо статус прочитання у центрі сповіщень
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Позначено прочитаним" });
+});
+
+app.post("/api/zavuch/notifications/read-all", zavuchOnly, async (req, res) => {
+  await pool.query("UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false", [req.user.id]);
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Усі сповіщення прочитано" });
 });
 
 // ============================================================================
@@ -2611,6 +2646,41 @@ app.put("/api/teacher/profile", teacherOnly, async (req, res) => {
     );
   }
   res.json({ message: "Профіль збережено" });
+});
+
+// --- Сповіщення вчителя (особиста скринька) ----------------------------------
+app.get("/api/teacher/notifications", teacherOnly, async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, message, is_read, created_at FROM notifications
+      WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
+    [req.user.id]
+  );
+  const unread = r.rows.filter((n) => !n.is_read).length;
+  res.json({ notifications: r.rows, unread });
+});
+
+app.patch("/api/teacher/notifications/:id/read", teacherOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const upd = await pool.query(
+    "UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2 RETURNING id",
+    [id, req.user.id]
+  );
+  if (upd.rowCount === 0) return res.status(404).json({ error: "Сповіщення не знайдено" });
+  // Синхронізуємо статус прочитання у центрі сповіщень
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Позначено прочитаним" });
+});
+
+app.post("/api/teacher/notifications/read-all", teacherOnly, async (req, res) => {
+  await pool.query("UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false", [req.user.id]);
+  await pool.query(
+    "UPDATE notification_users SET is_read = true, read_at = now() WHERE user_id = $1 AND is_read = false",
+    [req.user.id]
+  );
+  res.json({ message: "Усі сповіщення прочитано" });
 });
 
 // ============================================================================

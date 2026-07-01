@@ -8,6 +8,7 @@ const PAGE_TITLES = {
   students: "Учні школи",
   stats: "Статистика школи",
   competitions: "Конкурси школи",
+  notifications: "Сповіщення",
   profile: "Профіль",
 };
 
@@ -59,6 +60,7 @@ const loaders = {
   students: loadStudents,
   stats: loadStats,
   competitions: loadCompetitions,
+  notifications: loadNotifications,
   profile: loadProfile,
 };
 
@@ -274,6 +276,59 @@ async function loadCompetitions() {
     : `<tr><td colspan="5" class="empty">Учні школи ще не подавали заявок</td></tr>`;
 }
 
+// ---- Сповіщення -------------------------------------------------------------
+async function loadNotifications() {
+  const { notifications } = await getJSON("/api/zavuch/notifications");
+  $("notificationsList").innerHTML = notifications.length
+    ? notifications
+        .map(
+          (n) => `<li class="notif-item ${n.is_read ? "read" : "unread"}" data-notif-id="${n.id}">
+            <div class="notif-body">
+              ${n.is_read ? "" : '<span class="notif-dot" aria-label="Непрочитане"></span>'}
+              <span class="notif-text">${esc(n.message)}</span>
+            </div>
+            <div class="notif-meta">
+              <span>${fmtDate(n.created_at)}</span>
+              ${n.is_read ? "" : `<button class="btn sm ghost" data-read-notif="${n.id}">Прочитано</button>`}
+            </div>
+          </li>`
+        )
+        .join("")
+    : `<div class="empty-list">Сповіщень ще немає</div>`;
+  updateNotifBadge();
+}
+
+async function updateNotifBadge() {
+  try {
+    const { unread } = await getJSON("/api/zavuch/notifications");
+    const badge = $("notifBadge");
+    if (!badge) return;
+    if (unread > 0) {
+      badge.textContent = unread > 99 ? "99+" : unread;
+      badge.classList.remove("hidden");
+    } else {
+      badge.classList.add("hidden");
+    }
+  } catch {
+    /* тихо ігноруємо */
+  }
+}
+
+$("notificationsList").addEventListener("click", async (e) => {
+  const id = e.target.getAttribute("data-read-notif");
+  if (!id) return;
+  const { ok, data } = await send("PATCH", `/api/zavuch/notifications/${id}/read`);
+  if (!ok) return toast("err", data.error || "Помилка");
+  loadNotifications();
+});
+
+$("markAllReadBtn").onclick = async () => {
+  const { ok, data } = await send("POST", "/api/zavuch/notifications/read-all");
+  if (!ok) return toast("err", data.error || "Помилка");
+  toast("ok", data.message);
+  loadNotifications();
+};
+
 // ---- Профіль ----------------------------------------------------------------
 async function loadProfile() {
   // Дані вже завантажені в loadMe(); за потреби оновлюємо
@@ -297,4 +352,7 @@ $("profileForm").addEventListener("submit", async (e) => {
 (async function init() {
   await loadMe();
   switchPage("dashboard");
+  // Індикатор непрочитаних сповіщень (оновлення кожні 60 с)
+  updateNotifBadge();
+  setInterval(updateNotifBadge, 60000);
 })();

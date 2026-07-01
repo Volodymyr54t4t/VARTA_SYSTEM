@@ -10,6 +10,7 @@ const PAGE_TITLES = {
   submit: "Подати учня",
   results: "Результати",
   analytics: "Аналітика",
+  notifications: "Сповіщення",
   profile: "Профіль",
 };
 
@@ -70,6 +71,7 @@ const loaders = {
   submit: loadSubmit,
   results: loadResults,
   analytics: loadAnalytics,
+  notifications: loadNotifications,
   profile: loadProfile,
 };
 
@@ -302,6 +304,59 @@ async function loadAnalytics() {
     `<div class="role-bar"><span>Середній бал</span><span class="track"><span class="fill" style="width:${(Number(stats.avgScore) / 100) * 100}%"></span></span><span>${stats.avgScore}</span></div>`;
 }
 
+// ---- Сповіщення -------------------------------------------------------------
+async function loadNotifications() {
+  const { notifications } = await getJSON("/api/teacher/notifications");
+  $("notificationsList").innerHTML = notifications.length
+    ? notifications
+        .map(
+          (n) => `<li class="notif-item ${n.is_read ? "read" : "unread"}" data-notif-id="${n.id}">
+            <div class="notif-body">
+              ${n.is_read ? "" : '<span class="notif-dot" aria-label="Непрочитане"></span>'}
+              <span class="notif-text">${esc(n.message)}</span>
+            </div>
+            <div class="notif-meta">
+              <span>${fmtDate(n.created_at)}</span>
+              ${n.is_read ? "" : `<button class="btn sm ghost" data-read-notif="${n.id}">Прочитано</button>`}
+            </div>
+          </li>`
+        )
+        .join("")
+    : `<div class="empty-list">Сповіщень ще немає</div>`;
+  updateNotifBadge();
+}
+
+async function updateNotifBadge() {
+  try {
+    const { unread } = await getJSON("/api/teacher/notifications");
+    const badge = $("notifBadge");
+    if (!badge) return;
+    if (unread > 0) {
+      badge.textContent = unread > 99 ? "99+" : unread;
+      badge.classList.remove("hidden");
+    } else {
+      badge.classList.add("hidden");
+    }
+  } catch {
+    /* тихо ігноруємо */
+  }
+}
+
+$("notificationsList").addEventListener("click", async (e) => {
+  const id = e.target.getAttribute("data-read-notif");
+  if (!id) return;
+  const { ok, data } = await send("PATCH", `/api/teacher/notifications/${id}/read`);
+  if (!ok) return toast("err", data.error || "Помилка");
+  loadNotifications();
+});
+
+$("markAllReadBtn").onclick = async () => {
+  const { ok, data } = await send("POST", "/api/teacher/notifications/read-all");
+  if (!ok) return toast("err", data.error || "Помилка");
+  toast("ok", data.message);
+  loadNotifications();
+};
+
 // ---- Профіль ----------------------------------------------------------------
 async function loadProfile() {
   const { user } = await getJSON("/api/me");
@@ -324,4 +379,7 @@ $("profileForm").addEventListener("submit", async (e) => {
 (async function init() {
   await loadMe();
   switchPage("dashboard");
+  // Індикатор непрочитаних сповіщень (оновлення кожні 60 с)
+  updateNotifBadge();
+  setInterval(updateNotifBadge, 60000);
 })();
